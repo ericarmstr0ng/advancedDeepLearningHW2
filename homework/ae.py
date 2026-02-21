@@ -118,22 +118,39 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             #an embedding tensor of the shape (B, H//patch_size, W//patch_size, latent_dim).
             self.Patchify = PatchifyLinear(patch_size, latent_dim)
 
-            # Mixing layers to go from latent_dim to bottleneck
-            self.mix = torch.nn.Conv2d(latent_dim, latent_dim,kernel_size=3, padding=1)
+            # Multiple mixing layers for better feature extraction
+            self.mix1 = torch.nn.Conv2d(latent_dim, latent_dim * 2, kernel_size=3, padding=1)
+            self.mix2 = torch.nn.Conv2d(latent_dim * 2, latent_dim * 2, kernel_size=3, padding=1)
+            self.mix3 = torch.nn.Conv2d(latent_dim * 2, latent_dim, kernel_size=3, padding=1)
 
             #Projection layer to go from latent_dim to bottleneck
             self.projection = torch.nn.Conv2d(latent_dim, bottleneck, kernel_size=1)
 
             #Activation function
             self.activation = torch.nn.GELU()
-
+            self.norm1 = torch.nn.LayerNorm(latent_dim * 2)
+            self.norm2 = torch.nn.LayerNorm(latent_dim * 2)
+            self.norm3 = torch.nn.LayerNorm(latent_dim)
 
             # raise NotImplementedError()
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             x = self.Patchify(x)  #(B, H//patch_size, W//patch_size, latent_dim)
             x = hwc_to_chw(x)      #(B, latent_dim, H//patch_size, W//patch_size)
-            x = self.mix(x)        #(B, latent_dim, H//patch_size, W//patch_size)
+            x = self.mix1(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
+            x = chw_to_hwc(x)
+            x = self.norm1(x)
+            x = hwc_to_chw(x)
+            x = self.activation(x)
+            x = self.mix2(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
+            x = chw_to_hwc(x)
+            x = self.norm2(x)
+            x = hwc_to_chw(x)
+            x = self.activation(x)
+            x = self.mix3(x)       #(B, latent_dim, H//patch_size, W//patch_size)
+            x = chw_to_hwc(x)
+            x = self.norm3(x)
+            x = hwc_to_chw(x)
             x = self.activation(x)
             x = self.projection(x) #(B, bottleneck, H//patch_size, W//patch_size)
             x = chw_to_hwc(x)      #(B, H//patch_size, W//patch_size, bottleneck)
@@ -147,11 +164,16 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             # Expansion layer to go from bottleneck to latent_dim
             self.expand = torch.nn.Conv2d(bottleneck, latent_dim, kernel_size=1)
 
-            # Mixing layers to go from latent_dim to latent_dim
-            self.mix = torch.nn.Conv2d(latent_dim, latent_dim, kernel_size=3, padding=1)
+            # Multiple mixing layers for better feature extraction
+            self.mix1 = torch.nn.Conv2d(latent_dim, latent_dim * 2, kernel_size=3, padding=1)
+            self.mix2 = torch.nn.Conv2d(latent_dim * 2, latent_dim * 2, kernel_size=3, padding=1)
+            self.mix3 = torch.nn.Conv2d(latent_dim * 2, latent_dim, kernel_size=3, padding=1)
 
             #Activation function
             self.activation = torch.nn.GELU()
+            self.norm1 = torch.nn.LayerNorm(latent_dim * 2)
+            self.norm2 = torch.nn.LayerNorm(latent_dim * 2)
+            self.norm3 = torch.nn.LayerNorm(latent_dim)
 
             # Takes an embedding tensor of the shape (B, w, h, latent_dim) and reconstructs
             # an image tensor of the shape (B, w * patch_size, h * patch_size, 3).
@@ -162,7 +184,20 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             x = hwc_to_chw(x)      #(B, bottleneck, H//patch_size, W//patch_size)
             x = self.expand(x)     #(B, latent_dim, H//patch_size, W//patch_size)
             x = self.activation(x)
-            x = self.mix(x)        #(B, latent_dim, H//patch_size, W//patch_size)
+            x = self.mix1(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
+            x = chw_to_hwc(x)
+            x = self.norm1(x)
+            x = hwc_to_chw(x)
+            x = self.activation(x)
+            x = self.mix2(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
+            x = chw_to_hwc(x)
+            x = self.norm2(x)
+            x = hwc_to_chw(x)
+            x = self.activation(x)
+            x = self.mix3(x)       #(B, latent_dim, H//patch_size, W//patch_size)
+            x = chw_to_hwc(x)
+            x = self.norm3(x)
+            x = hwc_to_chw(x)
             x = self.activation(x)
             x = chw_to_hwc(x)      #(B, H//patch_size, W//patch_size, latent_dim)
             x = self.Unpatchify(x) #(B, H, W, 3)
