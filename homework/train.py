@@ -19,16 +19,17 @@ ar_models = {
 }
 
 
-def train(model_name_or_path: str, epochs: int = 5, batch_size: int = 64):
+def train(model_name_or_path: str, epochs: int = 5, batch_size: int = 64, lr: float = 1e-3):
     import lightning as L
     from lightning.pytorch.loggers import TensorBoardLogger
 
     from .data import ImageDataset, TokenDataset
 
     class PatchTrainer(L.LightningModule):
-        def __init__(self, model):
+        def __init__(self, model, learning_rate):
             super().__init__()
             self.model = model
+            self.learning_rate = learning_rate
 
         def training_step(self, x, batch_idx):
             x = x.float() / 255.0 - 0.5
@@ -70,9 +71,10 @@ def train(model_name_or_path: str, epochs: int = 5, batch_size: int = 64):
             return torch.utils.data.DataLoader(dataset, batch_size=4096, num_workers=4, shuffle=True)
 
     class AutoregressiveTrainer(L.LightningModule):
-        def __init__(self, model):
+        def __init__(self, model, learning_rate):
             super().__init__()
             self.model = model
+            self.learning_rate = learning_rate
 
         def training_step(self, x, batch_idx):
             x_hat, additional_losses = self.model(x)
@@ -100,7 +102,7 @@ def train(model_name_or_path: str, epochs: int = 5, batch_size: int = 64):
             return loss
 
         def configure_optimizers(self):
-            return torch.optim.AdamW(self.parameters(), lr=1e-3)
+            return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
 
         def train_dataloader(self):
             dataset = TokenDataset("train")
@@ -132,9 +134,9 @@ def train(model_name_or_path: str, epochs: int = 5, batch_size: int = 64):
 
     # Create the lightning model
     if isinstance(model, (autoregressive.Autoregressive)):
-        l_model = AutoregressiveTrainer(model)
+        l_model = AutoregressiveTrainer(model, lr)
     else:
-        l_model = PatchTrainer(model)
+        l_model = PatchTrainer(model, lr)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     logger = TensorBoardLogger("logs", name=f"{timestamp}_{model_name}")
