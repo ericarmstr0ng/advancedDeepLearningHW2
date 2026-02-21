@@ -114,95 +114,67 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
 
         def __init__(self, patch_size: int, latent_dim: int, bottleneck: int):
             super().__init__()
-            #Takes an image tensor of the shape (B, H, W, 3) and patchifies it into
-            #an embedding tensor of the shape (B, H//patch_size, W//patch_size, latent_dim).
             self.Patchify = PatchifyLinear(patch_size, latent_dim)
-
-            # Multiple mixing layers for better feature extraction
             self.mix1 = torch.nn.Conv2d(latent_dim, latent_dim * 2, kernel_size=3, padding=1)
             self.mix2 = torch.nn.Conv2d(latent_dim * 2, latent_dim * 2, kernel_size=3, padding=1)
             self.mix3 = torch.nn.Conv2d(latent_dim * 2, latent_dim, kernel_size=3, padding=1)
-
-            #Projection layer to go from latent_dim to bottleneck
             self.projection = torch.nn.Conv2d(latent_dim, bottleneck, kernel_size=1)
-
-            #Activation function
             self.activation = torch.nn.GELU()
             self.norm1 = torch.nn.LayerNorm(latent_dim * 2)
             self.norm2 = torch.nn.LayerNorm(latent_dim * 2)
             self.norm3 = torch.nn.LayerNorm(latent_dim)
 
-            # raise NotImplementedError()
+        def _block(self, x: torch.Tensor, conv, norm) -> torch.Tensor:
+            """Apply conv, norm, and activation in CHW→HWC→CHW pipeline."""
+            x = conv(x)
+            x = chw_to_hwc(x)
+            x = norm(x)
+            x = hwc_to_chw(x)
+            x = self.activation(x)
+            return x
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            x = self.Patchify(x)  #(B, H//patch_size, W//patch_size, latent_dim)
-            x = hwc_to_chw(x)      #(B, latent_dim, H//patch_size, W//patch_size)
-            x = self.mix1(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
-            x = chw_to_hwc(x)
-            x = self.norm1(x)
+            x = self.Patchify(x)
             x = hwc_to_chw(x)
-            x = self.activation(x)
-            x = self.mix2(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
+            x = self._block(x, self.mix1, self.norm1)
+            x = self._block(x, self.mix2, self.norm2)
+            x = self._block(x, self.mix3, self.norm3)
+            x = self.projection(x)
             x = chw_to_hwc(x)
-            x = self.norm2(x)
-            x = hwc_to_chw(x)
-            x = self.activation(x)
-            x = self.mix3(x)       #(B, latent_dim, H//patch_size, W//patch_size)
-            x = chw_to_hwc(x)
-            x = self.norm3(x)
-            x = hwc_to_chw(x)
-            x = self.activation(x)
-            x = self.projection(x) #(B, bottleneck, H//patch_size, W//patch_size)
-            x = chw_to_hwc(x)      #(B, H//patch_size, W//patch_size, bottleneck)
             return x
-            
-            # raise NotImplementedError()
 
     class PatchDecoder(torch.nn.Module):
         def __init__(self, patch_size: int, latent_dim: int, bottleneck: int):
             super().__init__()
-            # Expansion layer to go from bottleneck to latent_dim
             self.expand = torch.nn.Conv2d(bottleneck, latent_dim, kernel_size=1)
-
-            # Multiple mixing layers for better feature extraction
             self.mix1 = torch.nn.Conv2d(latent_dim, latent_dim * 2, kernel_size=3, padding=1)
             self.mix2 = torch.nn.Conv2d(latent_dim * 2, latent_dim * 2, kernel_size=3, padding=1)
             self.mix3 = torch.nn.Conv2d(latent_dim * 2, latent_dim, kernel_size=3, padding=1)
-
-            #Activation function
             self.activation = torch.nn.GELU()
             self.norm1 = torch.nn.LayerNorm(latent_dim * 2)
             self.norm2 = torch.nn.LayerNorm(latent_dim * 2)
             self.norm3 = torch.nn.LayerNorm(latent_dim)
-
-            # Takes an embedding tensor of the shape (B, w, h, latent_dim) and reconstructs
-            # an image tensor of the shape (B, w * patch_size, h * patch_size, 3).
             self.Unpatchify = UnpatchifyLinear(patch_size, latent_dim)
-            # raise NotImplementedError()
+
+        def _block(self, x: torch.Tensor, conv, norm) -> torch.Tensor:
+            """Apply conv, norm, and activation in CHW→HWC→CHW pipeline."""
+            x = conv(x)
+            x = chw_to_hwc(x)
+            x = norm(x)
+            x = hwc_to_chw(x)
+            x = self.activation(x)
+            return x
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            x = hwc_to_chw(x)      #(B, bottleneck, H//patch_size, W//patch_size)
-            x = self.expand(x)     #(B, latent_dim, H//patch_size, W//patch_size)
-            x = self.activation(x)
-            x = self.mix1(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
-            x = chw_to_hwc(x)
-            x = self.norm1(x)
             x = hwc_to_chw(x)
+            x = self.expand(x)
             x = self.activation(x)
-            x = self.mix2(x)       #(B, latent_dim*2, H//patch_size, W//patch_size)
+            x = self._block(x, self.mix1, self.norm1)
+            x = self._block(x, self.mix2, self.norm2)
+            x = self._block(x, self.mix3, self.norm3)
             x = chw_to_hwc(x)
-            x = self.norm2(x)
-            x = hwc_to_chw(x)
-            x = self.activation(x)
-            x = self.mix3(x)       #(B, latent_dim, H//patch_size, W//patch_size)
-            x = chw_to_hwc(x)
-            x = self.norm3(x)
-            x = hwc_to_chw(x)
-            x = self.activation(x)
-            x = chw_to_hwc(x)      #(B, H//patch_size, W//patch_size, latent_dim)
-            x = self.Unpatchify(x) #(B, H, W, 3)
+            x = self.Unpatchify(x)
             return x
-            #raise NotImplementedError()
 
     def __init__(self, patch_size: int = 25, latent_dim: int = 128, bottleneck: int = 128):
         super().__init__()
