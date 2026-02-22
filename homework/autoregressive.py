@@ -76,30 +76,32 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
         # raise NotImplementedError()
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        # Assign batch and seq_len
-        B, seq_len = x.shape  # x is (B, h, w) where seq_len = h*w
+        # Flatten input from (B, h, w) to (B, seq_len)
+        B, h, w = x.shape
+        seq_len = h * w
+        x_flat = x.view(B, seq_len)  # (B, seq_len)
+        
         # Create embeddings
-        z = self.token_embedding(x)  # (B, seq_len, d_latent)
+        z = self.token_embedding(x_flat)  # (B, seq_len, d_latent)
 
         # Create positional embeddings
         positions = torch.arange(seq_len, device=x.device)
         z = z + self.position_embedding(positions).unsqueeze(0)  # (1, seq_len, d_latent)
 
         # Create mask
-        casual_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len).to(x.device)  # (seq_len, seq_len)
+        causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len).to(x.device)  # (seq_len, seq_len)
 
         # Shift inputs by 1
         start_token = torch.zeros(B, 1, self.d_latent, device=x.device) 
         z_shifted = torch.cat([start_token, z[:, :-1, :]], dim=1)  # (B, seq_len, d_latent)
 
         # Apply transformer
-        z_out = self.transformer(
-            z_shifted,
-            src_mask=casual_mask,
-            is_casual=True
-        )
+        z_out = self.transformer(z_shifted, src_mask=causal_mask)
 
         logits = self.output_layer(z_out)  # (B, seq_len, n_tokens)
+        
+        # Reshape back to (B, h, w, n_tokens)
+        logits = logits.view(B, h, w, self.n_tokens)
         return logits, {}
 
         # raise NotImplementedError()
