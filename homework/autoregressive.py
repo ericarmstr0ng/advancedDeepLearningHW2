@@ -69,7 +69,8 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
             nhead=8,
             dim_feedforward=512, # 128 * 4; d_ff is 2-4 times d_model
             dropout=0.1, 
-            activation='relu')
+            activation='relu',
+            batch_first=True)
         
         self.output_layer = torch.nn.Linear(d_latent, n_tokens)
 
@@ -108,13 +109,17 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
 
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
         seq_len = h * w
-
-        current = torch.zeros(B, seq_len, dtype=torch.long, device=device)  # Start with start 
+        current = torch.zeros(B, h, w, dtype=torch.long, device=device)
+        
         for i in range(seq_len):
-            logits, _ = self.forward(current)
-            next_token_logits = logits[:, i, :]  # (B, n_tokens)
-            next_token = torch.argmax(next_token_logits, dim=-1)  # (B, 1)
-            current[:,i] = next_token
+            logits, _ = self.forward(current)  # (B, h, w, n_tokens)
+            # Flatten to get position i
+            logits_flat = logits.view(B, seq_len, self.n_tokens)
+            next_token_logits = logits_flat[:, i, :]  # (B, n_tokens)
+            next_token = torch.argmax(next_token_logits, dim=-1)  # (B,)
+            # Update position i in the flattened view
+            current_flat = current.view(B, seq_len)
+            current_flat[:, i] = next_token
 
-        return current.view(B, h, w)
+        return current
         # raise NotImplementedError()
