@@ -55,10 +55,64 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
 
     def __init__(self, d_latent: int = 128, n_tokens: int = 2**10):
         super().__init__()
-        raise NotImplementedError()
+        self.n_tokens = n_tokens
+        self.d_latent = d_latent
+        # convert to imbeddings
+        self.token_embedding = torch.nn.Embedding(n_tokens, d_latent)
+        
+        # Positional embeddings for up to 600 tokens 600 comes from 20*30=600
+        self.position_embedding = torch.nn.Embedding(600, d_latent)
+        
+        #Transformer Decoder...we use Encoder because we only need self attention and not cross attention
+        self.transformer = torch.nn.TransformerEncoderLayer(
+            d_model=d_latent,
+            nhead=8,
+            dim_feedforward=512, # 128 * 4; d_ff is 2-4 times d_model
+            dropout=0.1, 
+            activation='relu')
+        
+        self.output_layer = torch.nn.Linear(d_latent, n_tokens)
+
+        # raise NotImplementedError()
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        raise NotImplementedError()
+        # Assign batch and seq_len
+        B, seq_len = x.shape  # x is (B, h, w) where seq_len = h*w
+        # Create embeddings
+        z = self.token_embedding(x)  # (B, seq_len, d_latent)
+
+        # Create positional embeddings
+        positions = torch.arange(seq_len, device=x.device)
+        z = z + self.position_embedding(positions).unsqueeze(0)  # (1, seq_len, d_latent)
+
+        # Create mask
+        casual_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len).to(x.device)  # (seq_len, seq_len)
+
+        # Shift inputs by 1
+        start_token = torch.zeros(B, 1, self.d_latent, device=x.device) 
+        z_shifted = torch.cat([start_token, z[:, :-1, :]], dim=1)  # (B, seq_len, d_latent)
+
+        # Apply transformer
+        z_out = self.transformer(
+            z_shifted,
+            src_mask=casual_mask,
+            is_casual=True
+        )
+
+        logits = self.output_layer(z_out)  # (B, seq_len, n_tokens)
+        return logits, {}
+
+        # raise NotImplementedError()
 
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
-        raise NotImplementedError()
+        seq_len = h * w
+
+        current = torch.zeros(B, seq_len, dtype=torch.long, device=device)  # Start with start 
+        for i in range(seq_len):
+            logits, _ = self.forward(current)
+            next_token_logits = logits[:, i, :]  # (B, n_tokens)
+            next_token = torch.argmax(next_token_logits, dim=-1)  # (B, 1)
+            current[:,i] = next_token
+
+        return current.view(B, h, w)
+        # raise NotImplementedError()
