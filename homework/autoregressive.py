@@ -108,18 +108,24 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
         # raise NotImplementedError()
 
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
+        self.eval()
         seq_len = h * w
         current = torch.zeros(B, h, w, dtype=torch.long, device=device)
         
-        for i in range(seq_len):
-            logits, _ = self.forward(current)  # (B, h, w, n_tokens)
-            # Flatten to get position i
-            logits_flat = logits.view(B, seq_len, self.n_tokens)
-            next_token_logits = logits_flat[:, i, :]  # (B, n_tokens)
-            next_token = torch.argmax(next_token_logits, dim=-1)  # (B,)
-            # Update position i in the flattened view
-            current_flat = current.view(B, seq_len)
-            current_flat[:, i] = next_token
+        with torch.no_grad():
+            for i in range(seq_len):
+                logits, _ = self.forward(current)  # (B, h, w, n_tokens)
+                # Flatten to get position i
+                logits_flat = logits.view(B, seq_len, self.n_tokens)
+                next_token_logits = logits_flat[:, i, :]  # (B, n_tokens)
+                
+                # Sample from the distribution instead of argmax
+                probs = torch.softmax(next_token_logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1).squeeze(-1)  # (B,)
+                
+                # Update position i in the flattened view
+                current_flat = current.view(B, seq_len)
+                current_flat[:, i] = next_token
 
         return current
         # raise NotImplementedError()
